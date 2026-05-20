@@ -1,0 +1,16 @@
+exportPattern("^[[:alpha:]]+")
+export(fit_info_tab)
+S3method(fit_info_tab, nls)
+S3method(fit_info_tab, list)
+
+
+exportPattern("^[[:alpha:]]+")
+export(sample_reduce)
+S3method(sample_reduce, default)
+S3method(sample_reduce, data.frame)
+
+exportPattern("^[[:alpha:]]+")
+export(entropy_multi_gauss)
+S3method(entropy_multi_gauss, nls)
+S3method(entropy_multi_gauss, matrix)
+S3method(entropy_multi_gauss, list)
