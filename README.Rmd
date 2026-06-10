@@ -1,0 +1,532 @@
+---
+title: "Explanation: Nonlinear regression involving repeated measurements"
+author: "Michael Parzinger"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    number_sections: true
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = T)
+```
+
+# General Information
+
+This document explains how to optimize acoustic or other models using nonlinear regression. It begins with some general notes on *R* and a recommended package. Next, the case of independently and identically distributed errors is explained using an example. This is followed by a discussion of the case where more general errors are present. Finally, the steps are applied to the sound insulation index $R$ model.
+
+# Notes regarding *R*
+
+- Before running the program, you should install *RStudio* in addition to the *R* programming language. *RStudio* is a user interface that makes working in R much more convenient.
+
+- Details about unknown functions can be accessed in *R* by typing *?function_name*. For example, *?lm* shows how to perform a linear regression in *R*.
+
+# Install and load the SoundModeling Package
+
+The *SoundModeling* package contains the R functions for nonlinear regression that are used below.
+
+**Please note** that since this package may trigger the download of many other packages, the installation may take a little while...
+
+Installation option one (Commented out to prevent it from being executed accidentally):
+
+```{r}
+# install.packages("remotes")
+# remotes::install_github("Michi-Parz/SoundModeling")
+```
+
+Installation option two (Commented out to prevent it from being executed accidentally):
+
+```{r}
+### First, download the project from GitHub
+# install.packages("devtools")
+# devtools::install("SoundModeling", dependencies = TRUE)
+```
+
+To do this, run the following code:
+
+```{r message=FALSE}
+library(SoundModeling)
+```
+
+**Possible issue if the installation fails**: SoundModeling installs many other useful packages. So first check if that was the cause. If you see any references to *geomtextpath*, *ggplot2*, *ggpubr*, *gridExtra*, etc., install them separately.
+
+BUT it should actually work just fine...
+
+# Parameter Estimation -- Independent and Identically Distributed Errors
+
+Here is an example analysis using a simple linear model. While *R* actually provides the *lm* function for this purpose, the focus of this document is on explaining the case of nonlinear regression, which is why *lm* is not used here.
+
+In this chapter, we assume that the errors are independent and identically distributed. This will be abbreviated as i.i.d. (independent and identically distributed) hereafter. The case where the errors cannot be assumed to be i.i.d. will be discussed in the next chapter.
+
+In general, the principle shown can be applied to models of the form
+
+$$y_i = g(\phi, x_i) + \epsilon_i$$ where:
+
+- $y_i$ $i$th observation
+
+- $x_i$ $i$th covariate (not necessary)
+
+- $\phi$ parameter to be estimated
+
+- $g$ function/model that depends on $\phi$ and possibly on $x_i$
+
+- $\epsilon_i\stackrel{\mathrm{i.i.d.}}{\sim}\mathcal{N}(0,\sigma^2)$ error term (explains the deviation between the model and the data)
+
+- $\sigma^2$ variance
+
+## Initial Fit
+
+First, the relevant data is generated:
+
+```{r}
+n <- 30                 # Number of observations
+x <- 1:n                # Explanatory variable
+error <- rnorm(n)       # Standard normally distributed errors
+y <- 3 + 2 * x + error  # Target variable
+
+# Example data
+example_data <- data.frame(y = y, x = x)
+
+# Graphical representation
+ggplot(example_data, aes(x = x, y = y))+
+  geom_point()
+
+```
+
+In addition, the corresponding model equation is defined:
+
+```{r}
+lin_func <- function(a,b,x){
+  a + b * x
+}
+
+# lin_func(a,b,x) = a + b*x
+```
+
+To estimate this model, the *nlsLM* function from the *minpack.lm* package is used.
+
+As mentioned above, details about this function can be displayed using
+
+```{r, message=F}
+# ?nlsLM
+```
+
+In our example, the model can be estimated as follows:
+
+```{r}
+
+example_mod <- nlsLM(
+  y~lin_func(a,b,x),      # Model equation (or: y ~ a + b * x)
+  data = example_data,    # Data
+  start = c(a = 0, b = 0) # staring values
+)
+```
+
+The model equation, the dataset, and the initial values are always required here!
+
+The notation used for the model equation follows the standard convention in *R*. In our example, it is written as
+
+$$y_i \sim \mathcal{N}(a+bx_i, \sigma^2).$$
+
+All variables appearing in the model equation must be specified either in the data or in the initial values.
+
+In this example, x, y, a, and b are required. While x and y are provided in the data, a and b are estimated. Therefore, the name of the fit parameter must also be specified in the initial values.
+
+```{r}
+# FALSCH: The model cannot be run this way
+start = c(0,0)
+# RIGHT: This makes it clear which parameter has which starting value!
+start = c(a = 0, b = 0)
+```
+
+The *summary* function provides an overview of the results. The *Estimate* column contains the parameter estimates.
+
+```{r}
+summary(example_mod)
+```
+
+The vector of fit parameters is obtained via
+
+```{r}
+coefficients(example_mod)
+```
+
+The *fitted* function is available for the model curve. This can be used, for example, to extend the graph.
+
+```{r}
+# A combined data.frame containing both the data and the model. 
+example_data$modellkurve <- fitted(example_mod)
+
+ggplot(example_data, aes(x = x))+ 
+  geom_point(aes(y = y, color = "Daten")) +         # Data
+  geom_line(aes(y = modellkurve, color = "Modell"))+# Model curve
+  labs(x = "x-Achse",y = "y-Achse", color = "")+    # Customize labels
+  scale_color_manual(values = c("black", "cyan"))   # Color adjustment
+
+```
+
+## Fixed Parameters
+
+If parameters are already known, you can simply enter the corresponding value. Be sure to adjust the vector for the initial values accordingly.
+
+```{r}
+nlsLM(
+  y~lin_func(1,b,x),     # Model equation
+  data = example_data,   # Data
+  start = c(b = 0)       # Starting value: Only b, since the rest is known
+)
+```
+
+The fixed parameter can also be passed as a vector. This is useful if the value depends on the data.
+
+To do this, we adjust the corresponding data set:
+
+```{r}
+fix_data <- example_data[,-3] 
+
+# New offsets
+fix_data$a <- rnorm(n, sd =2)  
+# Shifted target value
+fix_data$y <- fix_data$y - 3 + fix_data$a
+
+# What does the dataset contain?
+names(fix_data)
+```
+
+Unlike before, the parameter *a* is not part of the fit here, but is included in the *fix_data* dataset.
+
+```{r}
+
+fix_mod <- nlsLM(
+  y~lin_func(a,b,x),# Model equation
+  data = fix_data, # Data
+  start = c(b = 0) # Starting value: Only b, since the rest is known
+)
+
+summary(fix_mod)
+```
+
+Graphical representation:
+
+```{r}
+# Combined data.frame of data and model. 
+fix_data$modellkurve <- fitted(fix_mod)
+
+ggplot(fix_data, aes(x = x))+ 
+  geom_point(aes(y = y, color = "Daten")) +         # Data
+  geom_line(aes(y = modellkurve, color = "Modell"))+# Model curve
+  labs(x = "x-Achse",y = "y-Achse", color = "")+    # Customize labels
+  scale_color_manual(values = c("black", "cyan"))   # Customize colors
+
+```
+
+The model is of the form: $$y_i = a_i + bx_i + \epsilon_i,$$
+
+where $a_i$ and $x_i$ are known, $\epsilon_i\stackrel{\mathrm{i.i.d.}}{\sim}\mathcal{N}(0,\sigma^2)$, and $b$ is the parameter to be estimated.
+
+## Parameter Range Limiter
+
+If there are parameters that must not fall below or exceed a certain value, this can be controlled using *lower* or *upper*.
+
+```{r}
+nlsLM(
+  y~lin_func(a,b,x),      # Model equation
+  data = example_data,    # Data
+  start = c(a = 0, b = 0),# Starting values
+  lower = c(0, -Inf),     # Lower bound
+  upper = c(42, 2)        # Upper bound
+)
+```
+
+Additional information:
+
+- The order of *lower* and *upper* is the same as that of *start*
+
+- The vectors *lower*, *upper*, and *start* must therefore be the same length
+
+- If a limit is required only for certain values, this can be controlled using *Inf* or *-Inf*
+
+- Tip: Run the whole thing without limits first, and only add them if you get nonsense results.
+
+# Parameter Estimation -- General Errors
+
+Now we will consider models of the form:
+
+$$y_{ij} = g(\phi,x_{ij}) + \epsilon_{ij}$$
+
+- $y_{ij}$: the $j$th observation of the $i$th measurement curve
+
+- $x_{ij}$: the $j$th covariate of the $i$th measurement curve
+
+- $\phi$ parameter to be estimated
+
+- $g$ function/model that depends on $\phi$ and possibly on $x_i$
+
+- $\epsilon_{ij}\sim\mathcal{N}(0,\sigma_j^2)$ error term
+
+- $\sigma_j^2$ variance of the $j$th observations
+
+While the errors $\epsilon_{ij}$ may be correlated within a single measurement curve, no correlation is assumed between measurement curves. Formally speaking:
+
+$$\operatorname{Cov}(\epsilon_{ij}, \epsilon_{i'j'})=
+\begin{cases}
+\rho(j,j'), &i=i'\\
+0, &i\neq i'
+\end{cases}$$
+
+The estimation of the covariances $\rho(j,j')$ depends on the assumed structure. This will be discussed in more detail later.
+
+## Sample Data
+
+For simplicity, we will stick with a linear model, except that we now need repeated measurements.
+
+We assume a tvAR(1) error, which means that the deviations at a given time depend on the previous value. For this approach, it does not matter whether we are dealing with time points, frequencies, or something else. The main thing is that there is a clearly defined sequence.
+
+```{r}
+# Dimension
+I <- 27
+J <- 21
+# Covariates
+x <- rep(1:J,I)
+
+# AR Coefficients
+ar_coeff <- 0.95^(1:J)
+# Conditional standard deviation
+st_dev <- (1:J)^(1/2)
+
+# Creation of a covariance matrixErstellung Kovarianzmatrix
+chol_cov <- diag(st_dev)%*%solve(diag(J) - backshift_matrix(ar_coeff, J))
+cov_mat <- chol_cov%*%t(chol_cov)
+# Error
+cor_error <- rmvnorm(I, sigma = cov_mat)
+cor_error <- c(t(cor_error))
+# Measurement curves
+y <- lin_func(3,2,x) + cor_error
+
+# Data
+example_data <- data.frame(
+  "ID" = rep(1:I, each = J), # The ID is necessary to make it clear which curves belong together!
+  "Zeitpunkt" = x,
+  "Messung" = y
+)
+
+```
+
+```{r}
+ggplot(example_data)+
+  aes(x = Zeitpunkt, y = Messung, group = ID)+
+  geom_point()+
+  geom_line()
+```
+
+## Fit including covariance estimation
+
+The difference from the i.i.d. case is that the *nlsLMcov* function should now be used.
+
+*nlsLMcov* is a custom function that extends the *nlsLM* function to include estimation of the covariance matrix.
+
+```{r}
+
+mod_inkl_cov <- nlsLMcov(
+  Messung~lin_func(a,b,Zeitpunkt),# Model equation
+  data = example_data,            # Data
+  start = c(a = 0, b = 0),        # Starting values
+  cov_type = "tvAR",              # Assumption of covariance structure
+  curve_len = J                   # Length of a measurement curve
+)
+
+summary(mod_inkl_cov)
+
+```
+
+The estimated covariance matrix can be accessed using \$.
+
+```{r}
+estimated_cov_matrix <- mod_inkl_cov$cov_matrix
+```
+
+For the presentation, one option is to use the standard deviations
+
+```{r}
+stdev_df <- data.frame(
+  "Zeitpunkt" = rep(1:J, 2),
+  "Varianz" = c(
+    diag(estimated_cov_matrix),
+    diag(cov_mat)
+  ),
+  "Art" = rep(c("Schätzung", "Wahr"), each = J)
+)
+
+ggplot(stdev_df)+
+  aes(x = Zeitpunkt, y = sqrt(Varianz), color = Art)+
+  geom_point()+
+  geom_line()+
+  labs(y = "Standardabweichung")+
+  scale_color_manual(values = c("cyan", "gold"))
+
+
+```
+
+and, on the other hand, the correlation matrix:
+
+```{r}
+corrplot::corrplot( # Plottet eine Korrelationsmatrix
+  cov2cor(estimated_cov_matrix), # Wandelt eine Kovarianzmatrix in eine Korrelationsmatrix um
+  method = "color" # Option für die Darstellung. Siehe ?corrplot::corrplot
+)
+```
+
+## Model Curve and Residuals
+
+Note that there are now two versions of the model curve and the residuals.
+
+Unlike in the i.i.d. case, you should also call up the fit curve using the dollar sign.
+
+```{r}
+# A combined data.frame containing both the data and the model.  
+example_data$modelfit <- mod_inkl_cov$fitted
+example_data$modelreal <- lin_func(3,2,x)
+
+ggplot(example_data, aes(x = x))+ 
+  geom_point(aes(y = y, color = "Daten")) +              # Data
+  geom_line(aes(y = modelfit, color = "Fit"))+           # Model curve (Fit)
+  geom_line(aes(y = modelreal, color = "Wahr"))+         # Model curve (True)
+  labs(x = "x-Achse",y = "y-Achse", color = "")+         # Customize labels
+  scale_color_manual(values = c("black", "cyan", "gold"))# Color adjustment
+
+```
+
+The *fitted* function returns the standardized fit. This means that the results are multiplied by $\Sigma^{-1/2}$, where $\Sigma$ denotes the covariance matrix.
+
+The same principle applies to the residuals as well—in that case, the standardized residuals are required. For example, when evaluating the curves.
+
+## Model Selection
+
+How can we determine which model is the best?
+
+One quick way to do this is by using **AIC** and **BIC**.
+
+1.  Create models
+
+```{r}
+# Model as before
+mod1 <- nlsLMcov(
+  Messung~lin_func(a,b,Zeitpunkt),
+  data = example_data,            
+  start = c(a = 0, b = 0),        
+  cov_type = "tvAR",             
+  curve_len = J                  
+)
+# Model where a = 0
+mod2 <- nlsLMcov(
+  Messung~lin_func(0,b,Zeitpunkt),
+  data = example_data,            
+  start = c(b = 0),        
+  cov_type = "tvAR",             
+  curve_len = J                  
+)
+
+# Model where b = 1
+mod3 <- nlsLMcov(
+  Messung~lin_func(a,1,Zeitpunkt),
+  data = example_data,            
+  start = c(a = 0),        
+  cov_type = "tvAR",             
+  curve_len = J                  
+)
+
+```
+
+2.  Create a list consisting of all models
+
+```{r}
+mod_list <- list(mod1,mod2,mod3)
+```
+
+3.  Call function *ic_overview*
+
+```{r}
+ic_overview(mod_list)
+```
+
+The *AIC* and *BIC* columns are the relevant ones. *KappaIC* and *KsqrtIC* are approaches I am no longer entirely convinced of. Meanwhile, *negLogL* represents the negative log-likelihood, which is required for the calculations in the first four columns, and LL_se indicates the standard deviation of the negative log-likelihood.
+
+The model with the lowest AIC or BIC is the best—the difference between AIC and BIC here is that the BIC places greater weight on the number of parameters to be estimated. The BIC therefore favors simple models.
+
+In addition to the model structure, the assumption regarding the covariance matrix can also be tested.
+
+**Note**: The Ledoit-Wolf estimator (*cov_type=“LW”*) **CANNOT** be evaluated using AIC/BIC. There are theoretical reasons for this.
+
+In addition to AIC/BIC, there is also the variant using *leave-one-out cross-validation*, or **LOOCV** for short.
+
+Idea: Estimate the parameters using all but the $i$th measurement curve, and then calculate the negative log-likelihood of the $i$th measurement curve.
+
+```{r}
+nll_values <- loo_cv_nlsLMcov(
+  Messung~lin_func(a,b,Zeitpunkt),
+  data = example_data,            
+  start = c(a = 0, b = 0),        
+  cov_type = "tvAR",          
+  curve_len = J,
+  groups = "ID", # The name of the column in the data that indicates which curves belong together
+  verbose = F    # If TRUE is displayed, it shows how far along the calculations are
+)
+```
+
+The result is now the negative log-likelihood for each curve. The arithmetic mean of these values gives the LOOCV. Here, too, the lower the value, the better the model.
+
+```{r}
+nll_sd <- loo_cv_nlsLMcov( # Function for LOOCV
+  Messung~lin_func(a,b,Zeitpunkt),
+  data = example_data,            
+  start = c(a = 0, b = 0),        
+  cov_type = "sd", # No correlation but different variances                   
+  curve_len = J,
+  groups = "ID", #  Name of the column in data that specifies which curves belong together
+  verbose = F    # If TRUE, displays the progress of the calculations
+)
+nll_iid <- loo_cv_nlsLMcov(
+  Messung~lin_func(a,b,Zeitpunkt),
+  data = example_data,            
+  start = c(a = 0, b = 0),        
+  cov_type = "iid", # i.i.d. error         
+  curve_len = J,
+  groups = "ID", # Name of the column in data that specifies which curves belong together
+  verbose = F    # If TRUE, displays the progress of the calculations
+)
+```
+
+```{r}
+mean(nll_values) # LOOCV: tvAR(1) errors
+mean(nll_sd)     # LOOCV: Independent but not identically distributed errors
+mean(nll_iid)    # LOOCV: IID errors
+```
+
+## Implemented Covariance Matrices
+
+In *R*, you can get an overview using *?nlsLMcov* if *SoundModelling* has been loaded beforehand.
+
+Here is some additional information about these:
+
+- *sd*: If the correlations are to be ignored, but the standard deviations are to depend on the observation 𝑗
+
+- *sample*: The classic approach **BUT** if the number of measurement curves $I$ is too small relative to the observations per measurement curve $J$, this estimate is very unstable. For the sand-lime brick curves, for example, 27/21 ≈ 1.29, which is a very poor value.
+
+- *SSS*: A desperate attempt to salvage *sample* by slightly weakening the correlations. The parameter *sss_alpha* is used for this. Let me put it this way: If I had to remove one variant, it would be this one.
+
+- *LW*: Estimation according to Ledoit-Wolf. Most complicated approach – can be used when the others fail, i.e., when the correlation is present, the *tvAR* assumption does not hold, and there is insufficient data for *sample*. **Disadvantage**: AIC/BIC are no longer meaningful. LOOCV, however, is.
+
+- *iid*: See previous chapter
+
+- *tvAR*: $y_{ij}-g(\phi,x_{ij}) = \sum_{l=1}^{L_j} \alpha_{j,j-l}(y_{ij-l}-g(\phi,x_{ij-l}))+\epsilon_{ij}$ with $L_j = \min(L,j-1)$, where $L$ can be determined via *maxlag*. The $j$th observation here depends on up to $L$ previous observations.
+
+# Projects in which this package has been used
+
+- <https://github.com/Michi-Parz/SRI-Model-MLE>
+
+- <https://github.com/Michi-Parz/SRI-Model-Bayes>
+
+- <https://github.com/Michi-Parz/SRI-Model-Comparison>
+
+- <https://github.com/Michi-Parz/ImSo-Model>
